@@ -1,0 +1,224 @@
+# EJEMPLOS DE COMANDOS PARA API GATEWAY - ECI EXPRESS
+# Puerto: 8081 | URL Base: http://localhost:8081
+
+## =============================================
+## 1. AUTENTICACION - AuthController
+## =============================================
+
+# Login de Usuario (obtener token)
+$loginBody = @{
+    email = "manuelalejandro.guarnizo@gmail.com"
+    password = "Valentina1234"
+    role = "CUSTOMER"
+} | ConvertTo-Json
+
+Write-Host "=== INICIANDO LOGIN ==="
+$loginResponse = Invoke-RestMethod -Uri "http://localhost:8081/api/auth/login" -Method Post -ContentType "application/json" -Body $loginBody
+Write-Host "Login exitoso!"
+Write-Host "Token de acceso: $($loginResponse.accessToken)"
+
+
+# Guardar el token para usar en otros requests
+$accessToken = $loginResponse.accessToken
+$headers = @{
+    "Authorization" = "Bearer $accessToken"
+    "Content-Type" = "application/json"
+}
+
+# Validar Token
+Write-Host "=== VALIDANDO TOKEN ==="
+$validationResponse = Invoke-RestMethod -Uri "http://localhost:8081/api/auth/validate?token=$accessToken" -Method Get
+Write-Host "Token valido: $($validationResponse.valid)"
+
+# Extraer Email del Token
+Write-Host "=== EXTRAYENDO EMAIL DEL TOKEN ==="
+$emailResponse = Invoke-RestMethod -Uri "http://localhost:8081/api/auth/extract-username?token=$accessToken" -Method Get
+Write-Host "Email extraido: $($emailResponse.email)"
+
+# Obtener Usuario Actual (requiere token)
+Write-Host "=== OBTENIENDO USUARIO ACTUAL ==="
+$userInfo = Invoke-RestMethod -Uri "http://localhost:8081/api/auth/me" -Method Get -Headers $headers
+Write-Host "Usuario actual: $($userInfo.email)"
+Write-Host "Rol: $($userInfo.role)"
+
+## =============================================
+## 2. ADMINISTRADORES - AdminController
+## =============================================
+
+# Crear Administrador (requiere permisos de admin)
+Write-Host "=== CREANDO ADMINISTRADOR ==="
+$adminBody = @{
+    name = "Admin Principal"
+    email = "admin@eci.com"
+    password = "admin123"
+    role = "ADMIN"
+} | ConvertTo-Json
+
+$newAdmin = Invoke-RestMethod -Uri "http://localhost:8081/api/users/admins" -Method Post -Headers $headers -Body $adminBody
+Write-Host "Administrador creado: $($newAdmin.name)"
+Write-Host "ID: $($newAdmin.id)"
+Write-Host "Email: $($newAdmin.email)"
+
+# Obtener Administrador por ID
+Write-Host "=== OBTENIENDO ADMINISTRADOR ==="
+$adminId = $newAdmin.id
+$admin = Invoke-RestMethod -Uri "http://localhost:8081/api/users/admins/$adminId" -Method Get -Headers $headers
+Write-Host "Administrador: $($admin.name)"
+Write-Host "Email: $($admin.email)"
+
+# Actualizar Administrador
+Write-Host "=== ACTUALIZANDO ADMINISTRADOR ==="
+$updateAdminBody = @{
+    name = "Admin Actualizado"
+    email = "admin.actualizado@eci.com"
+} | ConvertTo-Json
+
+$updatedAdmin = Invoke-RestMethod -Uri "http://localhost:8081/api/users/admins/$adminId" -Method Put -Headers $headers -Body $updateAdminBody
+Write-Host "Administrador actualizado: $($updatedAdmin.name)"
+Write-Host "Nuevo email: $($updatedAdmin.email)"
+
+# Eliminar Administrador
+Write-Host "=== ELIMINANDO ADMINISTRADOR ==="
+Invoke-RestMethod -Uri "http://localhost:8081/api/users/admins/$adminId" -Method Delete -Headers $headers
+Write-Host "Administrador eliminado"
+
+## =============================================
+## 3. CLIENTES - CustomerController
+## =============================================
+
+# Crear Cliente
+Write-Host "=== CREANDO CLIENTE ==="
+$customerBody = @{
+    name = "Juan Perez"
+    email = "juan.perez@ejemplo.com"
+    password = "cliente123"
+    role = "CUSTOMER"
+} | ConvertTo-Json
+
+$newCustomer = Invoke-RestMethod -Uri "http://localhost:8081/api/users/customers" -Method Post -Headers $headers -Body $customerBody
+Write-Host "Cliente creado: $($newCustomer.name)"
+Write-Host "ID: $($newCustomer.id)"
+Write-Host "Email: $($newCustomer.email)"
+
+# Obtener Cliente por ID
+Write-Host "=== OBTENIENDO CLIENTE ==="
+$customerId = $newCustomer.id
+$customer = Invoke-RestMethod -Uri "http://localhost:8081/api/users/customers/$customerId" -Method Get -Headers $headers
+Write-Host "Cliente: $($customer.name)"
+Write-Host "Email: $($customer.email)"
+
+# Actualizar Cliente
+Write-Host "=== ACTUALIZANDO CLIENTE ==="
+$updateCustomerBody = @{
+    name = "Juan Perez Actualizado"
+    email = "juan.actualizado@ejemplo.com"
+} | ConvertTo-Json
+
+$updatedCustomer = Invoke-RestMethod -Uri "http://localhost:8081/api/users/customers/$customerId" -Method Put -Headers $headers -Body $updateCustomerBody
+Write-Host "Cliente actualizado: $($updatedCustomer.name)"
+Write-Host "Nuevo email: $($updatedCustomer.email)"
+
+# Eliminar Cliente
+Write-Host "=== ELIMINANDO CLIENTE ==="
+Invoke-RestMethod -Uri "http://localhost:8081/api/users/customers/$customerId" -Method Delete -Headers $headers
+Write-Host "Cliente eliminado"
+
+## =============================================
+## 4. VENDEDORES - SellerController
+## =============================================
+
+# Crear Vendedor
+Write-Host "=== CREANDO VENDEDOR ==="
+$sellerBody = @{
+    name = "Maria Garcia"
+    email = "maria.garcia@tienda.com"
+    password = "vendedor123"
+    role = "SELLER"
+} | ConvertTo-Json
+
+$newSeller = Invoke-RestMethod -Uri "http://localhost:8081/api/users/sellers" -Method Post -Headers $headers -Body $sellerBody
+Write-Host "Vendedor creado: $($newSeller.name)"
+Write-Host "ID: $($newSeller.id)"
+Write-Host "Email: $($newSeller.email)"
+
+# Obtener Vendedor por ID
+Write-Host "=== OBTENIENDO VENDEDOR ==="
+$sellerId = $newSeller.id
+$seller = Invoke-RestMethod -Uri "http://localhost:8081/api/users/sellers/$sellerId" -Method Get -Headers $headers
+Write-Host "Vendedor: $($seller.name)"
+Write-Host "Email: $($seller.email)"
+
+# Listar Todos los Vendedores
+Write-Host "=== LISTANDO TODOS LOS VENDEDORES ==="
+$allSellers = Invoke-RestMethod -Uri "http://localhost:8081/api/users/sellers" -Method Get -Headers $headers
+Write-Host "Total de vendedores: $($allSellers.Count)"
+foreach ($seller in $allSellers) {
+    Write-Host " - $($seller.name) ($($seller.email))"
+}
+
+# Listar Vendedores Pendientes
+Write-Host "=== LISTANDO VENDEDORES PENDIENTES ==="
+$pendingSellers = Invoke-RestMethod -Uri "http://localhost:8081/api/users/sellers/pending" -Method Get -Headers $headers
+Write-Host "Vendedores pendientes: $($pendingSellers.Count)"
+foreach ($seller in $pendingSellers) {
+    Write-Host " - $($seller.name) ($($seller.email))"
+}
+
+# Actualizar Vendedor
+Write-Host "=== ACTUALIZANDO VENDEDOR ==="
+$updateSellerBody = @{
+    name = "Maria Garcia Actualizada"
+    email = "maria.actualizada@tienda.com"
+} | ConvertTo-Json
+
+$updatedSeller = Invoke-RestMethod -Uri "http://localhost:8081/api/users/sellers/$sellerId" -Method Put -Headers $headers -Body $updateSellerBody
+Write-Host "Vendedor actualizado: $($updatedSeller.name)"
+Write-Host "Nuevo email: $($updatedSeller.email)"
+
+# Eliminar Vendedor
+Write-Host "=== ELIMINANDO VENDEDOR ==="
+Invoke-RestMethod -Uri "http://localhost:8081/api/users/sellers/$sellerId" -Method Delete -Headers $headers
+Write-Host "Vendedor eliminado"
+
+## =============================================
+## 5. CREDENCIALES - UserController
+## =============================================
+
+# Obtener Credenciales por Email
+Write-Host "=== OBTENIENDO CREDENCIALES POR EMAIL ==="
+$email = "manuelalejandro.guarnizo@gmail.com"
+$credentials = Invoke-RestMethod -Uri "http://localhost:8081/api/users/credentials/$email" -Method Get -Headers $headers
+Write-Host "Credenciales encontradas:"
+Write-Host "Email: $($credentials.email)"
+Write-Host "Rol: $($credentials.role)"
+
+# Autenticar Usuario con Email y Password
+Write-Host "=== AUTENTICANDO USUARIO ==="
+$authCredentials = Invoke-RestMethod -Uri "http://localhost:8081/api/users/credentials/auth?email=manuelalejandro.guarnizo@gmail.com&password=Valentina1234" -Method Get -Headers $headers
+Write-Host "Usuario autenticado: $($authCredentials.email)"
+Write-Host "Rol: $($authCredentials.role)"
+
+## =============================================
+## 6. HEALTH CHECKS
+## =============================================
+
+# Health Check Basico
+Write-Host "=== HEALTH CHECK BASICO ==="
+$health = Invoke-RestMethod -Uri "http://localhost:8081/health" -Method Get
+Write-Host "Estado: $($health.status)"
+Write-Host "Puerto: $($health.port)"
+Write-Host "Entorno: $($health.environment)"
+
+# Configuracion del Gateway
+Write-Host "=== CONFIGURACION DEL GATEWAY ==="
+$config = Invoke-RestMethod -Uri "http://localhost:8081/config" -Method Get
+Write-Host "Gateway configurado:"
+Write-Host "Servicio Usuarios: $($config.services.usuarios)"
+Write-Host "Servicio Autenticacion: $($config.services.autenticacion)"
+
+# Test de Proxy
+Write-Host "=== TEST DE PROXY ==="
+$proxyTest = Invoke-RestMethod -Uri "http://localhost:8081/api/test-proxy" -Method Get
+Write-Host "Proxy funcionando: $($proxyTest.message)"
+
+Write-Host "TODOS LOS COMANDOS EJECUTADOS EXITOSAMENTE!"
