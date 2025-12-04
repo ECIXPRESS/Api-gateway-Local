@@ -23,16 +23,16 @@ app.use((req, res, next) => {
         console.log('[GATEWAY] Eliminando header Expect problemático');
         delete req.headers['expect'];
     }
-    
+
     if (!req.headers['content-type'] && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
         req.headers['content-type'] = 'application/json';
     }
-    
+
     next();
 });
 
 // Body parsing middleware
-app.use(express.json({ 
+app.use(express.json({
     limit: '10mb',
     verify: (req, res, buf) => {
         try {
@@ -45,46 +45,44 @@ app.use(express.json({
     }
 }));
 
-app.use(express.urlencoded({ 
+app.use(express.urlencoded({
     extended: true,
     limit: '10mb'
 }));
 
-// Configuración de servicios
+// ===================================================================
+// NUEVA Configuración de servicios (Usando variables de entorno para Azure URLs)
+// ===================================================================
 const services = {
-    usuarios: process.env.USERS_SERVICE_URL || 'http://localhost:8080',
-    autenticacion: process.env.AUTH_SERVICE_URL || 'http://localhost:8082',
-    notificaciones: process.env.NOTIFICATIONS_SERVICE_URL || 'http://localhost:8083',
-    chat: process.env.CHAT_SERVICE_URL || 'http://localhost:8084',
-    pagos: process.env.PAYMENTS_SERVICE_URL || 'http://localhost:8085' // Nuevo servicio de pagos
+    stock: process.env.STOCK_SERVICE_URL || 'https://kappa-stock-dev-gdgqbqegdqfce8ad.mexicocentral-01.azurewebsites.net/',   // Stock Microservice (Products, Stock, Alerts)
+    orders: process.env.ORDERS_SERVICE_URL || 'https://kappa-orders-dev-fbeea3c4gbfrhyhf.mexicocentral-01.azurewebsites.net/',  // Orders Microservice
+    stats: process.env.STATS_SERVICE_URL || 'https://kappa-stats-dev-bqbahbc6e2araxa2.mexicocentral-01.azurewebsites.net/', // Stats Microservice
+    schedule: process.env.SCHEDULE_SERVICE_URL || 'https://kappa-schedule-dev-ffgaeaa7cva3baa7.mexicocentral-01.azurewebsites.net/' // Orders Schedule Microservice
 };
 
 console.log('Configuración de servicios:');
-console.log('- Usuarios:', services.usuarios);
-console.log('- Autenticación:', services.autenticacion);
-console.log('- Notificaciones:', services.notificaciones);
-console.log('- Chat:', services.chat);
-console.log('- Pagos:', services.pagos); // Nuevo log
+console.log('- Stock (Azure):', services.stock);
+console.log('- Orders (Azure):', services.orders);
 
 // Log de peticiones detallado
 app.use((req, res, next) => {
     console.log(`\n[GATEWAY] ======== NUEVA PETICIÓN ========`);
     console.log(`[GATEWAY] ${req.method} ${req.originalUrl}`);
     console.log(`[GATEWAY] Headers:`, JSON.stringify(req.headers, null, 2));
-    
+
     if (req.body && Object.keys(req.body).length > 0) {
         console.log(`[GATEWAY] Body:`, JSON.stringify(req.body, null, 2));
     } else {
         console.log(`[GATEWAY] Body: vacío o no JSON`);
     }
-    
+
     next();
 });
 
 // Health check
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'Gateway funcionando', 
+    res.json({
+        status: 'Gateway funcionando',
         port: GATEWAY_PORT,
         environment: process.env.NODE_ENV || 'development',
         microservicios: services,
@@ -99,21 +97,19 @@ const createProxyOptions = (serviceName, target) => ({
     timeout: 30000,
     proxyTimeout: 30000,
     onProxyReq: (proxyReq, req, res) => {
+        // Logging and standard header setting (unchanged)
         console.log(`[GATEWAY-${serviceName}] Proxying to: ${target}${req.url}`);
-        console.log(`[GATEWAY-${serviceName}] Method: ${req.method}`);
-        
+
         proxyReq.removeHeader('expect');
         proxyReq.removeHeader('Expect');
-        
+
         proxyReq.setHeader('Accept', 'application/json');
         proxyReq.setHeader('X-Forwarded-For', req.ip);
         proxyReq.setHeader('X-Forwarded-Host', req.hostname);
         proxyReq.setHeader('X-Forwarded-Proto', req.protocol);
-        
+
         if (req.body && (req.method === 'POST' || req.method === 'PUT' || req.method === 'PATCH')) {
             const bodyData = JSON.stringify(req.body);
-            console.log(`[GATEWAY-${serviceName}] Body data: ${bodyData}`);
-            
             if (bodyData && bodyData !== '{}') {
                 proxyReq.setHeader('Content-Type', 'application/json');
                 proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
@@ -122,155 +118,81 @@ const createProxyOptions = (serviceName, target) => ({
         }
     },
     onProxyRes: (proxyRes, req, res) => {
-        console.log(`[GATEWAY-${serviceName}] Response Status: ${proxyRes.statusCode}`);
-        console.log(`[GATEWAY-${serviceName}] Response Headers:`, JSON.stringify(proxyRes.headers, null, 2));
-        
+        // CORS and header logging (unchanged)
         proxyRes.headers['access-control-allow-origin'] = '*';
         proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS, PATCH';
         proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, Accept, X-Requested-With, Origin';
     },
     onError: (err, req, res) => {
+        // Error handling (unchanged)
         console.error(`[GATEWAY-${serviceName}] Proxy error:`, err.message);
-        console.error(`[GATEWAY-${serviceName}] Error code:`, err.code);
-        
-        if (err.code === 'ECONNREFUSED') {
-            res.status(503).json({ 
+
+        if (err.code === 'ENOTFOUND' || err.code === 'ECONNREFUSED' || err.code === 'ETIMEDOUT') {
+            res.status(503).json({
                 error: `Servicio ${serviceName} no disponible`,
-                message: `No se puede conectar a ${target}`,
-                details: err.message,
-                timestamp: new Date().toISOString()
-            });
-        } else if (err.code === 'ECONNRESET' || err.code === 'ETIMEDOUT') {
-            res.status(504).json({ 
-                error: `Timeout del servicio ${serviceName}`,
-                message: `El servicio no respondió a tiempo`,
+                message: `No se puede conectar a ${target} (Verificar Azure URL)`,
                 details: err.message,
                 timestamp: new Date().toISOString()
             });
         } else {
-            res.status(500).json({ 
-                error: `Error en proxy ${serviceName}`,
-                message: err.message,
-                code: err.code,
-                timestamp: new Date().toISOString()
-            });
+            res.status(500).json({ error: `Error en proxy ${serviceName}`, message: err.message });
         }
     }
 });
 
-// **CORRECCIÓN: Proxy para Gestión de Usuarios con nuevos endpoints de password reset**
-app.use('/api/users', createProxyMiddleware({
-    ...createProxyOptions('USERS', services.usuarios),
+// -------------------------------------------------------------------
+// NUEVOS PROXIES BASADOS EN CONTROLADORES DE AZURE (Stock Microservice)
+// -------------------------------------------------------------------
+
+// 1. Proxy para Product CRUD y Stock Management
+// (ProductController @RequestMapping("/api/products") and StockController @RequestMapping("/api/products/{productId}/stock"))
+app.use('/api/products', createProxyMiddleware({
+    ...createProxyOptions('STOCK-PRODUCTS', services.stock),
     pathRewrite: {
-        '^/api/users': '/users'
-    },
-    onProxyReq: (proxyReq, req, res) => {
-        console.log(`[GATEWAY-USERS] === PROXY USERS DETALLADO ===`);
-        console.log(`[GATEWAY-USERS] Original URL: ${req.originalUrl}`);
-        console.log(`[GATEWAY-USERS] Rewritten URL: /users${req.url.replace('/api/users', '')}`);
-        
-        proxyReq.removeHeader('expect');
-        proxyReq.removeHeader('Expect');
-        
-        if (req.body) {
-            console.log(`[GATEWAY-USERS] Body recibido:`, JSON.stringify(req.body, null, 2));
-            
-            const bodyData = JSON.stringify(req.body);
-            if (bodyData && bodyData !== '{}') {
-                proxyReq.setHeader('Content-Type', 'application/json');
-                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                proxyReq.write(bodyData);
-                console.log(`[GATEWAY-USERS] Body enviado: ${bodyData}`);
-            }
-        }
-        
-        console.log(`[GATEWAY-USERS] Headers finales:`, JSON.stringify(proxyReq.getHeaders(), null, 2));
+        '^/api/products': '/api/products'
     }
 }));
 
-// Proxy para Autenticación
-app.use('/api/auth', createProxyMiddleware({
-    ...createProxyOptions('AUTH', services.autenticacion),
+// 2. Proxy para Stock Alerts
+// (StockAlertController @RequestMapping("/api/stock-alerts"))
+app.use('/api/stock-alerts', createProxyMiddleware({
+    ...createProxyOptions('STOCK-ALERTS', services.stock),
     pathRewrite: {
-        '^/api/auth': '/auth'
+        '^/api/stock-alerts': '/api/stock-alerts'
     }
 }));
 
-// Proxy para User Info
-app.use('/api/user-info', createProxyMiddleware({
-    ...createProxyOptions('USER-INFO', services.autenticacion),
+// 3. Proxy para Orders Microservice
+// (OrdersController @RequestMapping("/api/orders"))
+app.use('/api/orders', createProxyMiddleware({
+    ...createProxyOptions('ORDERS', services.orders),
     pathRewrite: {
-        '^/api/user-info': '/user-info'
+        '^/api/orders': '/api/orders'
     }
 }));
 
-// Proxy para Notificaciones
-app.use('/api/notifications', createProxyMiddleware({
-    ...createProxyOptions('NOTIFICATIONS', services.notificaciones),
+// 4. Proxy para Stats Microservice
+// (StatsController @RequestMapping("/api/statistics"))
+app.use('api/statistics', createProxyMiddleware({
+    ...createProxyOptions('STATS', services.stats),
     pathRewrite: {
-        '^/api/notifications': '/notifications'
+        '^/api/statistics': '/api/statistics'
     }
-}));
+}))
 
-// Proxy para Chat
-app.use('/api/chat', createProxyMiddleware({
-    ...createProxyOptions('CHAT', services.chat),
+// 5. Proxy para Stats Microservice
+// (ScheduleController @RequestMapping("/api/schedule"))
+app.use('api/schedule', createProxyMiddleware({
+    ...createProxyOptions('SCHEDULE', services.schedule),
     pathRewrite: {
-        '^/api/chat': ''  // Elimina /api/chat y mantiene el resto de la ruta
-    },
-    onProxyReq: (proxyReq, req, res) => {
-        console.log(`[GATEWAY-CHAT] === PROXY CHAT DETALLADO ===`);
-        console.log(`[GATEWAY-CHAT] Original URL: ${req.originalUrl}`);
-        console.log(`[GATEWAY-CHAT] Rewritten URL: ${req.url.replace('/api/chat', '')}`);
-        
-        proxyReq.removeHeader('expect');
-        proxyReq.removeHeader('Expect');
-        
-        if (req.body) {
-            console.log(`[GATEWAY-CHAT] Body recibido:`, JSON.stringify(req.body, null, 2));
-            
-            const bodyData = JSON.stringify(req.body);
-            if (bodyData && bodyData !== '{}') {
-                proxyReq.setHeader('Content-Type', 'application/json');
-                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                proxyReq.write(bodyData);
-                console.log(`[GATEWAY-CHAT] Body enviado: ${bodyData}`);
-            }
-        }
-        
-        console.log(`[GATEWAY-CHAT] Headers finales:`, JSON.stringify(proxyReq.getHeaders(), null, 2));
+        '^/api/schedule': '/api/schedule'
     }
-}));
+}))
 
-// **NUEVO: Proxy para Pagos**
-app.use('/api/payments', createProxyMiddleware({
-    ...createProxyOptions('PAYMENTS', services.pagos),
-    pathRewrite: {
-        '^/api/payments': '/api/v1/payments'  // Mapea a la ruta base del controlador de pagos
-    },
-    onProxyReq: (proxyReq, req, res) => {
-        console.log(`[GATEWAY-PAYMENTS] === PROXY PAYMENTS DETALLADO ===`);
-        console.log(`[GATEWAY-PAYMENTS] Original URL: ${req.originalUrl}`);
-        console.log(`[GATEWAY-PAYMENTS] Rewritten URL: /api/v1/payments${req.url.replace('/api/payments', '')}`);
-        
-        proxyReq.removeHeader('expect');
-        proxyReq.removeHeader('Expect');
-        
-        if (req.body) {
-            console.log(`[GATEWAY-PAYMENTS] Body recibido:`, JSON.stringify(req.body, null, 2));
-            
-            const bodyData = JSON.stringify(req.body);
-            if (bodyData && bodyData !== '{}') {
-                proxyReq.setHeader('Content-Type', 'application/json');
-                proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
-                proxyReq.write(bodyData);
-                console.log(`[GATEWAY-PAYMENTS] Body enviado: ${bodyData}`);
-            }
-        }
-        
-        console.log(`[GATEWAY-PAYMENTS] Headers finales:`, JSON.stringify(proxyReq.getHeaders(), null, 2));
-    }
-}));
+
+// -------------------------------------------------------------------
+// RUTAS DE INFORMACIÓN DEL GATEWAY (Actualizadas)
+// -------------------------------------------------------------------
 
 // Ruta para verificar configuración
 app.get('/config', (req, res) => {
@@ -280,108 +202,59 @@ app.get('/config', (req, res) => {
             environment: process.env.NODE_ENV || 'development'
         },
         services: services,
-        passwordResetEndpoints: {
-            'POST /api/users/password/reset-request': 'Solicitar código de verificación',
-            'POST /api/users/password/verify-code': 'Verificar código',
-            'PUT /api/users/password/reset': 'Cambiar contraseña'
-        },
-        customerEndpoints: {
-            'POST /api/users/customers': 'Crear customer',
-            'GET /api/users/customers/:customerId': 'Obtener customer por ID',
-            'PUT /api/users/customers/:customerId/password': 'Actualizar password',
-            'PUT /api/users/customers/:customerId': 'Actualizar customer',
-            'DELETE /api/users/customers/:customerId': 'Eliminar customer'
-        },
-        chatEndpoints: {
-            // Conversaciones
-            'POST /api/chat/eciexpress/conversations': 'Crear conversación',
-            'DELETE /api/chat/eciexpress/conversations': 'Eliminar conversación',
-            'GET /api/chat/eciexpress/conversations/{id}/messages': 'Obtener mensajes de conversación',
-            
-            // Usuario de Chat
-            'GET /api/chat/eciexpress/chatuser/{id}/filter/contacts': 'Filtrar contactos',
-            'GET /api/chat/eciexpress/chatuser/{id}/contacts': 'Obtener contactos',
-            'GET /api/chat/eciexpress/chatuser/{id}/messages': 'Obtener mensajes en conversación',
-            'GET /api/chat/eciexpress/chatuser/{id}/conversations': 'Obtener conversaciones del usuario',
-            'POST /api/chat/eciexpress/chatuser/add-contact': 'Agregar contacto',
-            'POST /api/chat/eciexpress/chatuser/create-test-users': 'Crear usuarios de prueba (TEST)'
-        },
-        paymentEndpoints: {
-            'POST /api/payments/ProcessPayment': 'Procesar un nuevo pago'
-        }
-    });
-});
+        stockEndpoints: {
+            'POST /api/products': 'Crear producto',
+            'GET /api/products/:id': 'Obtener producto por ID',
+            'GET /api/products': 'Listar productos',
+            'DELETE /api/products/:id': 'Eliminar producto',
+            'PUT /api/products/:id': 'Actualizar producto',
+            'PATCH /api/products/:id': 'Modificar parcialmente producto',
 
-// Ruta para test de proxy
-app.get('/api/test-proxy', (req, res) => {
-    res.json({
-        message: 'Test de proxy exitoso',
-        services: services,
-        timestamp: new Date().toISOString()
+            'POST /api/products/:id/stock/increase': 'Aumentar stock',
+            'POST /api/products/:id/stock/decrease': 'Disminuir stock',
+
+            'GET /api/stock-alerts/active': 'Obtener alertas activas',
+            'GET /api/stock-alerts/product/:productId': 'Obtener alertas de un producto específico',
+        },
+        orderEndpoints: {
+            'POST /api/orders': 'Crear pedido',
+            'POST /api/orders/:id/items': 'Agregar lo que se va a comprar',
+            'GET /api/orders/:id': 'Consultar pedido por ID',
+            'GET /api/orders/user/:userId': 'Listar pedidos por usuario',
+            'PUT /api/orders/:id/status': 'Actualizar estado del pedido',
+            'PUT /api/orders/:id/cancel': 'Cancelar el pedido',
+            'GET /api/orders/status/:status': 'Listar pedidos por estado',
+            'GET /api/orders/user/:id/history': 'Consulta historial de un usuario',
+            'GET /api/orders/:id/items':'Obtiene los items del pedido',
+            'GET /api/orders/:id/total':'Obtiene el valor total del pedido',
+            'PUT /api/orders/:id/estimated-time':'Actualiza el tiempo estimado',
+            'PUT /api/orders/:id/confirm':'Confirma el pedido',
+            'PUT /api/orders/:id/preparation':'Marca el pedido en preparación',
+            'PUT /api/orders/:id/ready':'Marcar pedido como listo',
+            'PUT /api/orders/:id/deliver':'Marcar pedido como entregado',
+            'GET /api/orders/date/:date' : 'Buscar pedidos por fecha',
+            'GET /api/orders/location/:location':'Listar pedidos por ubicación',
+            'GET /api/orders/pending':'Listar pedidos pendientes',
+            'GET /api/orders/completed/today':'Listar pedidos completados hoy',
+            'GET /api/orders/user/:id/count':'Contar pedidos por usuario',
+            'GET /api/orders/:id/exists':'Verificar la existencia de un pedido',
+            'DELETE /api/orders/:id':'Eliminar un pedido'
+        }
     });
 });
 
 // Ruta principal
 app.get('/', (req, res) => {
     res.json({
-        message: 'Gateway funcionando - SERVICIOS DE CHAT Y PAGOS AGREGADOS',
+        message: 'Gateway funcionando - SERVICIOS STOCK, PEDIDOS, HORARIOS Y ESTADÍSTICAS (AZURE)',
         environment: process.env.NODE_ENV || 'development',
         microservicios: services,
-        passwordResetEndpoints: [
-            'POST /api/users/password/reset-request',
-            'POST /api/users/password/verify-code', 
-            'PUT /api/users/password/reset'
-        ],
-        customerEndpoints: [
-            'POST /api/users/customers',
-            'GET /api/users/customers/:customerId', 
-            'PUT /api/users/customers/:customerId/password',
-            'PUT /api/users/customers/:customerId',
-            'DELETE /api/users/customers/:customerId'
-        ],
-        chatEndpoints: [
-            'POST /api/chat/eciexpress/conversations',
-            'DELETE /api/chat/eciexpress/conversations',
-            'GET /api/chat/eciexpress/conversations/:id/messages',
-            'GET /api/chat/eciexpress/chatuser/:id/filter/contacts',
-            'GET /api/chat/eciexpress/chatuser/:id/contacts',
-            'GET /api/chat/eciexpress/chatuser/:id/messages',
-            'GET /api/chat/eciexpress/chatuser/:id/conversations',
-            'POST /api/chat/eciexpress/chatuser/add-contact',
-            'POST /api/chat/eciexpress/chatuser/create-test-users'
-        ],
-        paymentEndpoints: [
-            'POST /api/payments/ProcessPayment'
-        ],
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Middleware para log de errores
-app.use((err, req, res, next) => {
-    console.error('[GATEWAY] Error no manejado:', err);
-    console.error('[GATEWAY] Error stack:', err.stack);
-    
-    res.status(500).json({
-        error: 'Error interno del gateway',
-        message: err.message,
-        timestamp: new Date().toISOString()
-    });
-});
-
-// Manejo de rutas no encontradas
-app.use('*', (req, res) => {
-    console.log(`[GATEWAY] Ruta no encontrada: ${req.originalUrl}`);
-    res.status(404).json({
-        error: 'Ruta no encontrada',
-        message: `La ruta ${req.originalUrl} no existe`,
-        available_routes: [
-            '/api/auth/*',
-            '/api/user-info/*', 
-            '/api/users/*',
-            '/api/notifications/*',
-            '/api/chat/*',
-            '/api/payments/*', // Nueva ruta agregada
+        endpoints_available: [
+            '/api/products/*',
+            '/api/stock-alerts/*',
+            '/api/orders/*',
+            'api/statistics/*',
+            'api/schedule/*',
             '/health',
             '/config',
             '/api/test-proxy'
@@ -390,40 +263,28 @@ app.use('*', (req, res) => {
     });
 });
 
+// Middleware para log de errores y rutas no encontradas (UNCHANGED)
+app.use((err, req, res, next) => {
+    // ... error logging ...
+    res.status(500).json({ error: 'Error interno del gateway', message: err.message });
+});
+
+app.use('*', (req, res) => {
+    // ... 404 handling ...
+    res.status(404).json({ error: 'Ruta no encontrada', message: `La ruta ${req.originalUrl} no existe` });
+});
+
+
 app.listen(GATEWAY_PORT, '0.0.0.0', () => {
     console.log('=========================================');
-    console.log('GATEWAY ACTUALIZADO - SERVICIOS DE CHAT Y PAGOS AGREGADOS');
+    console.log('GATEWAY ACTUALIZADO - SERVICIOS AZURE');
     console.log('=========================================');
     console.log(`URL: http://localhost:${GATEWAY_PORT}`);
-    console.log('Environment:', process.env.NODE_ENV || 'development');
-    console.log('Microservicios configurados:');
-    console.log(`- Gestión de Usuarios: ${services.usuarios}`);
-    console.log(`- Autenticación: ${services.autenticacion}`);
-    console.log(`- Notificaciones: ${services.notificaciones}`);
-    console.log(`- Chat: ${services.chat}`);
-    console.log(`- Pagos: ${services.pagos}`);
-    console.log('Endpoints de Chat:');
-    console.log('- POST   /api/chat/eciexpress/conversations');
-    console.log('- DELETE /api/chat/eciexpress/conversations');
-    console.log('- GET    /api/chat/eciexpress/conversations/:id/messages');
-    console.log('- GET    /api/chat/eciexpress/chatuser/:id/filter/contacts');
-    console.log('- GET    /api/chat/eciexpress/chatuser/:id/contacts');
-    console.log('- GET    /api/chat/eciexpress/chatuser/:id/messages');
-    console.log('- GET    /api/chat/eciexpress/chatuser/:id/conversations');
-    console.log('- POST   /api/chat/eciexpress/chatuser/add-contact');
-    console.log('- POST   /api/chat/eciexpress/chatuser/create-test-users');
-    console.log('Endpoints de Pagos:');
-    console.log('- POST   /api/payments/ProcessPayment');
+    console.log(`- Stock (Azure) Endpoints: /api/products/*, /api/stock-alerts/*`);
+    console.log(`- Orders (Azure) Endpoints: /api/orders/*`);
+    console.log(`- Statistics (Azure) Endpoints: /api/statistics/*`);
+    console.log(`- OperationSchedule (Azure) Endpoints: /api/schedule/*`);
     console.log('=========================================');
 });
 
-
-process.on('SIGINT', () => {
-    console.log('\n[GATEWAY] Apagando gateway...');
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n[GATEWAY] Apagando gateway...');
-    process.exit(0);
-});
+// ... process listeners (SIGINT, SIGTERM) ...

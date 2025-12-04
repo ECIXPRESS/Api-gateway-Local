@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Redis Service
+  # Redis Service (Kept for shared infrastructure/caching if needed by Gateway)
   redis:
     image: redis:7-alpine
     container_name: eci-express-redis
@@ -17,155 +17,9 @@ services:
       retries: 3
       start_period: 10s
 
-  # Users Service
-  users-service:
-    build: 
-      context: C:/Users/Manuel Alejandro/Downloads/ECIEXPRESS-GestionUsuarios-Backend
-      dockerfile: Dockerfile
-    container_name: eci-express-users-service
-    ports:
-      - "8080:8080"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_MONGODB_URI=mongodb+srv://manuelguarnizog_db_user:slmEouXGl5LaTDbg@clustereciexpress.m7ljcsf.mongodb.net/users-management-db?retryWrites=true&w=majority
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - SPRING_DATA_REDIS_PASSWORD=
-      - SPRING_DATA_REDIS_DATABASE=0
-      - SPRING_DATA_REDIS_TIMEOUT=5000ms
-      - SERVER_CONNECTION_TIMEOUT=30000
-      - SPRING_MVC_ASYNC_REQUEST_TIMEOUT=30000
-    networks:
-      - microservices-network
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-  # Authentication Service
-  authentication-service:
-    build: 
-      context: C:/Users/Manuel Alejandro/Downloads/ECIEXPRESS-AuthenticationService-Backend
-      dockerfile: Dockerfile
-    container_name: eci-express-authentication-service
-    ports:
-      - "8082:8082"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_MONGODB_URI=mongodb+srv://manuelguarnizog_db_user:slmEouXGl5LaTDbg@clustereciexpress.m7ljcsf.mongodb.net/auth-db?retryWrites=true&w=majority
-      - EXTERNAL_USER_SERVICE_URL=http://users-service:8080
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - SERVER_HTTP100_CONTINUE_ENABLED=false
-      - SERVER_TOMCAT_CONNECTION_TIMEOUT=60000
-      - SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT=60000
-      - SERVER_TOMCAT_MAX_SWALLOW_SIZE=200000000
-    networks:
-      - microservices-network
-    depends_on:
-      - users-service
-      - redis
-    restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-  # Notifications Service
-  notifications-service:
-    build: 
-      context: C:/Users/Manuel Alejandro/Downloads/TSUKUYOMI-Notifications-Backend
-      dockerfile: Dockerfile
-    container_name: eci-express-notifications-service
-    ports:
-      - "8083:8083"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - REDIS_LISTENER_ENABLED=true
-      - SERVER_CONNECTION_TIMEOUT=30000
-      - SPRING_MVC_ASYNC_REQUEST_TIMEOUT=30000
-      # Configuración específica para emails
-      - SPRING_MAIL_HOST=smtp.gmail.com
-      - SPRING_MAIL_PORT=587
-      - SPRING_MAIL_USERNAME=tu-email@gmail.com
-      - SPRING_MAIL_PASSWORD=tu-password
-      - SPRING_MAIL_PROPERTIES_MAIL_SMTP_AUTH=true
-      - SPRING_MAIL_PROPERTIES_MAIL_SMTP_STARTTLS_ENABLE=true
-    networks:
-      - microservices-network
-    depends_on:
-      - redis
-      - users-service
-    restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-  # Chat Service
-  chat-service:
-    build: 
-      context: C:\Users\Manuel Alejandro\Downloads\TSUKUYOMI-Chat-Backend
-      dockerfile: Dockerfile
-    container_name: eci-express-chat-service
-    ports:
-      - "8084:8084"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_MONGODB_URI=mongodb+srv://manuelguarnizog_db_user:slmEouXGl5LaTDbg@clustereciexpress.m7ljcsf.mongodb.net/Chat-db?retryWrites=true&w=majority
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - API_GATEWAY_URL=http://gateway:8081
-      - JWT_SECRET=mySuperSecretKeyForJWTGenerationInProductionChangeThisInProduction123456789012345678901234567890
-      - SERVER_CONNECTION_TIMEOUT=30000
-      - SPRING_MVC_ASYNC_REQUEST_TIMEOUT=30000
-      # Configuración específica para Redis Listener (sin conflictos)
-      - REDIS_LISTENER_ENABLED=true
-      - REDIS_CHAT_EVENTS_ENABLED=true
-    networks:
-      - microservices-network
-    depends_on:
-      - redis
-      - users-service
-      - authentication-service
-    restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-
-  # Payments Service
-  payments-service:
-    build: 
-      context: C:\Users\Manuel Alejandro\Downloads\Amaterasu-Payment-BackEnd
-      dockerfile: Dockerfile
-    container_name: eci-express-payments-service
-    ports:
-      - "8085:8085"
-    environment:
-      - SPRING_PROFILES_ACTIVE=docker
-      - SPRING_DATA_MONGODB_URI=mongodb+srv://manuelguarnizog_db_user:slmEouXGl5LaTDbg@clustereciexpress.m7ljcsf.mongodb.net/auth-db?retryWrites=true&w=majority
-      - SPRING_DATA_REDIS_HOST=redis
-      - SPRING_DATA_REDIS_PORT=6379
-      - SERVER_HTTP100_CONTINUE_ENABLED=false
-      - SERVER_TOMCAT_CONNECTION_TIMEOUT=60000
-      - SERVER_TOMCAT_KEEP_ALIVE_TIMEOUT=60000
-      - SERVER_TOMCAT_MAX_SWALLOW_SIZE=200000000
-    networks:
-      - microservices-network
-    depends_on:
-      - redis
-    restart: unless-stopped
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-  # Gateway
+  # Gateway (Now points to external Azure Web Apps)
   gateway:
-    build: 
+    build:
       context: .
       dockerfile: gateway.Dockerfile
     container_name: eci-express-gateway
@@ -173,11 +27,11 @@ services:
       - "8081:8081"
     environment:
       - NODE_ENV=production
-      - USERS_SERVICE_URL=http://users-service:8080
-      - AUTH_SERVICE_URL=http://authentication-service:8082
-      - NOTIFICATIONS_SERVICE_URL=http://notifications-service:8083
-      - CHAT_SERVICE_URL=http://chat-service:8084
-      - PAYMENTS_SERVICE_URL=http://payments-service:8085
+      - STOCK_SERVICE_URL=https://kappa-stock-dev-gdgqbqegdqfce8ad.mexicocentral-01.azurewebsites.net/
+      - ORDERS_SERVICE_URL=https://kappa-orders-dev-fbeea3c4gbfrhyhf.mexicocentral-01.azurewebsites.net/
+      - STATS_SERVICE_URL=https://kappa-stats-dev-bqbahbc6e2araxa2.mexicocentral-01.azurewebsites.net/
+      - SCHEDULE_SERVICE_URL=https://kappa-schedule-dev-ffgaeaa7cva3baa7.mexicocentral-01.azurewebsites.net/
+
       - JWT_SECRET=ecixpress-secret-key
       - GATEWAY_TIMEOUT=30000
       - HTTP_CLIENT_TIMEOUT=30000
@@ -185,16 +39,18 @@ services:
       - PROXY_CONNECT_TIMEOUT=30000
     networks:
       - microservices-network
+
+    # Only depends on Redis, as other services are external
     depends_on:
-      - users-service
-      - authentication-service
-      - notifications-service
-      - chat-service
-      - payments-service
+      redis:
+        condition: service_healthy
     restart: unless-stopped
+    # Use public DNS to ensure external Azure URLs can be resolved
     dns:
       - 8.8.8.8
       - 1.1.1.1
+
+# Removed all other microservice definitions (users-service, authentication-service, etc.)
 
 networks:
   microservices-network:
