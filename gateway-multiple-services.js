@@ -1,11 +1,79 @@
 const express = require('express');
 const { createProxyMiddleware } = require('http-proxy-middleware');
 const cors = require('cors');
+const path = require('path');
+const { exec } = require('child_process');
+const fs = require('fs');
 
 const app = express();
 const GATEWAY_PORT = 8081;
 
-// Configuración CORS más permisiva
+console.log('=========================================');
+console.log('🚀 INICIANDO MICROSERVICIOS DESDE GATEWAY');
+console.log('=========================================');
+
+const servicios = [
+    { nombre: 'Stock Service', ruta: 'C:\\Users\\arena\\OneDrive\\Escritorio\\Repositorios proyecto final ciclos\\Kappa-Stock-BackEnd', puerto: 8088 },
+    { nombre: 'Operations Schedule', ruta: 'C:\\Users\\arena\\OneDrive\\Escritorio\\Repositorios proyecto final ciclos\\KAPPA-OperationSchedule-BackEnd', puerto: 8087 },
+    { nombre: 'Orders Service', ruta: 'C:\\Users\\arena\\OneDrive\\Escritorio\\Repositorios proyecto final ciclos\\Kappa-Orders-BackEnd', puerto: 8086 },
+    { nombre: 'Statistics Service', ruta: 'C:\\Users\\arena\\OneDrive\\Escritorio\\Repositorios proyecto final ciclos\\Kappa-Statistics-BackEnd', puerto: 8089 }
+];
+
+servicios.forEach((servicio, index) => {
+    setTimeout(() => {
+        console.log(`\n[${index + 1}/${servicios.length}] Iniciando ${servicio.nombre}...`);
+        console.log(`Ruta: ${servicio.ruta}`);
+        console.log(`Puerto: ${servicio.puerto}`);
+
+        if (!fs.existsSync(servicio.ruta)) {
+            console.log(`ERROR: La ruta no existe: ${servicio.ruta}`);
+            console.log('Probando ruta alternativa...');
+
+            const rutaAlternativa = servicio.ruta.replace('OneDrive\\Escritorio', 'Desktop');
+            if (fs.existsSync(rutaAlternativa)) {
+                servicio.ruta = rutaAlternativa;
+                console.log(`Usando ruta alternativa: ${rutaAlternativa}`);
+            } else {
+                console.log(`Ruta alternativa tampoco existe: ${rutaAlternativa}`);
+                console.log('⚠ Este servicio no se iniciará');
+                return;
+            }
+        }
+
+        const comando = `cd /d "${servicio.ruta}" && mvn spring-boot:run -DskipTests -Dspring-boot.run.skipClean`;
+
+        console.log(`▶ Lanzando: ${servicio.nombre}`);
+        exec(`start cmd /k "title ${servicio.nombre} && ${comando}"`);
+    }, index * 4000);
+});
+
+
+console.log('\n⏰ Timer configurado: Gateway se iniciará en 60 segundos...');
+
+setTimeout(() => {
+    console.log('\n=========================================');
+    console.log(' TIMER COMPLETADO');
+    console.log(' INICIANDO API GATEWAY');
+    console.log('=========================================');
+    iniciarGateway();
+}, 60000);
+
+function checkAllStarted() {
+    if (serviciosIniciados === servicios.length) {
+        console.log('\nTODAS LAS VENTANAS ABIERTAS PARA MICROSERVICIOS');
+        console.log(' Esperando 20 segundos para que compilen e inicien...');
+
+        setTimeout(() => {
+            console.log('\n=========================================');
+            console.log('INICIANDO API GATEWAY');
+            console.log('=========================================');
+            iniciarGateway();
+        }, 20000);
+    }
+}
+
+function iniciarGateway() {
+
 app.use(cors({
     origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
@@ -14,10 +82,8 @@ app.use(cors({
     credentials: true
 }));
 
-// Manejar preflight OPTIONS requests globalmente
 app.options('*', cors());
 
-// MIDDLEWARE CRÍTICO: Eliminar header Expect que causa problemas
 app.use((req, res, next) => {
     if (req.headers['expect'] || req.headers['expect'] === '100-continue') {
         console.log('[GATEWAY] Eliminando header Expect problemático');
@@ -31,7 +97,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// Body parsing middleware
 app.use(express.json({
     limit: '10mb',
     verify: (req, res, buf) => {
@@ -50,7 +115,6 @@ app.use(express.urlencoded({
     limit: '10mb'
 }));
 
-// Configuración de servicios - AGREGADOS SERVICIOS DE STOCK Y STATISTICS
 const services = {
     usuarios: process.env.USERS_SERVICE_URL || 'http://localhost:8080',
     autenticacion: process.env.AUTH_SERVICE_URL || 'http://localhost:8082',
@@ -59,8 +123,8 @@ const services = {
     pagos: process.env.PAYMENTS_SERVICE_URL || 'http://localhost:8085',
     ordenes: process.env.ORDERS_SERVICE_URL || 'http://localhost:8086',
     schedule: process.env.SCHEDULE_SERVICE_URL || 'http://localhost:8087',
-    stock: process.env.STOCK_SERVICE_URL || 'http://localhost:8088', // Nuevo servicio de stock
-    statistics: process.env.STATISTICS_SERVICE_URL || 'http://localhost:8089' // Nuevo servicio de estadísticas
+    stock: process.env.STOCK_SERVICE_URL || 'http://localhost:8088',
+    statistics: process.env.STATISTICS_SERVICE_URL || 'http://localhost:8089'
 };
 
 console.log('Configuración de servicios:');
@@ -74,7 +138,6 @@ console.log('- Schedule/Horarios:', services.schedule);
 console.log('- Stock/Inventario:', services.stock);
 console.log('- Statistics/Estadísticas:', services.statistics);
 
-// Log de peticiones detallado
 app.use((req, res, next) => {
     console.log(`\n[GATEWAY] ======== NUEVA PETICIÓN ========`);
     console.log(`[GATEWAY] ${req.method} ${req.originalUrl}`);
@@ -89,7 +152,6 @@ app.use((req, res, next) => {
     next();
 });
 
-// Health check
 app.get('/health', (req, res) => {
     res.json({
         status: 'Gateway funcionando',
@@ -100,7 +162,28 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Configuración para proxies
+app.get('/', (req, res) => {
+    console.log('[GATEWAY] GET / - Ruta principal del gateway');
+    res.json({
+        message: 'API Gateway KappaFood funcionando',
+        status: 'online',
+        timestamp: new Date().toISOString(),
+        environment: process.env.NODE_ENV || 'development',
+        version: '1.0.0',
+        endpoints: {
+            usuarios: '/api/users',
+            autenticacion: '/api/auth',
+            productos: '/api/products',
+            ordenes: '/api/orders',
+            pagos: '/api/payments',
+            notificaciones: '/api/notifications',
+            chat: '/api/chat',
+            schedule: '/api/schedule',
+            estadisticas: '/api/statistics'
+        }
+    });
+});
+
 const createProxyOptions = (serviceName, target) => ({
     target: target,
     changeOrigin: true,
@@ -166,7 +249,6 @@ const createProxyOptions = (serviceName, target) => ({
     }
 });
 
-// Proxy para Gestión de Usuarios
 app.use('/api/users', createProxyMiddleware({
     ...createProxyOptions('USERS', services.usuarios),
     pathRewrite: {
@@ -196,7 +278,6 @@ app.use('/api/users', createProxyMiddleware({
     }
 }));
 
-// Proxy para Autenticación
 app.use('/api/auth', createProxyMiddleware({
     ...createProxyOptions('AUTH', services.autenticacion),
     pathRewrite: {
@@ -204,7 +285,6 @@ app.use('/api/auth', createProxyMiddleware({
     }
 }));
 
-// Proxy para User Info
 app.use('/api/user-info', createProxyMiddleware({
     ...createProxyOptions('USER-INFO', services.autenticacion),
     pathRewrite: {
@@ -212,7 +292,6 @@ app.use('/api/user-info', createProxyMiddleware({
     }
 }));
 
-// Proxy para Notificaciones
 app.use('/api/notifications', createProxyMiddleware({
     ...createProxyOptions('NOTIFICATIONS', services.notificaciones),
     pathRewrite: {
@@ -220,11 +299,10 @@ app.use('/api/notifications', createProxyMiddleware({
     }
 }));
 
-// Proxy para Chat
 app.use('/api/chat', createProxyMiddleware({
     ...createProxyOptions('CHAT', services.chat),
     pathRewrite: {
-        '^/api/chat': ''  // Elimina /api/chat y mantiene el resto de la ruta
+        '^/api/chat': ''
     },
     onProxyReq: (proxyReq, req, res) => {
         console.log(`[GATEWAY-CHAT] === PROXY CHAT DETALLADO ===`);
@@ -250,7 +328,6 @@ app.use('/api/chat', createProxyMiddleware({
     }
 }));
 
-// Proxy para Pagos
 app.use('/api/payments', createProxyMiddleware({
     ...createProxyOptions('PAYMENTS', services.pagos),
     pathRewrite: {
@@ -280,7 +357,6 @@ app.use('/api/payments', createProxyMiddleware({
     }
 }));
 
-// Proxy para Gestión de Órdenes/Pedidos
 app.use('/api/orders', createProxyMiddleware({
     ...createProxyOptions('ORDERS', services.ordenes),
     pathRewrite: {
@@ -310,7 +386,6 @@ app.use('/api/orders', createProxyMiddleware({
     }
 }));
 
-// Proxy para Gestión de Schedule/Horarios
 app.use('/api/schedule', createProxyMiddleware({
     ...createProxyOptions('SCHEDULE', services.schedule),
     pathRewrite: {
@@ -340,11 +415,10 @@ app.use('/api/schedule', createProxyMiddleware({
     }
 }));
 
-// NUEVO: Proxy para Gestión de Stock/Productos
 app.use('/api/products', createProxyMiddleware({
     ...createProxyOptions('STOCK', services.stock),
     pathRewrite: {
-        '^/api/products': '/api/products'  // Mantiene la misma ruta base
+        '^/api/products': '/api/products'
     },
     onProxyReq: (proxyReq, req, res) => {
         console.log(`[GATEWAY-STOCK] === PROXY STOCK DETALLADO ===`);
@@ -370,7 +444,6 @@ app.use('/api/products', createProxyMiddleware({
     }
 }));
 
-// NUEVO: Proxy para Stock Alerts (rutas específicas)
 app.use('/api/stock-alerts', createProxyMiddleware({
     ...createProxyOptions('STOCK-ALERTS', services.stock),
     pathRewrite: {
@@ -400,7 +473,6 @@ app.use('/api/stock-alerts', createProxyMiddleware({
     }
 }));
 
-// NUEVO: Proxy para Statistics/Estadísticas
 app.use('/api/statistics', createProxyMiddleware({
     ...createProxyOptions('STATISTICS', services.statistics),
     pathRewrite: {
@@ -414,7 +486,6 @@ app.use('/api/statistics', createProxyMiddleware({
         proxyReq.removeHeader('expect');
         proxyReq.removeHeader('Expect');
 
-        // Para la exportación de Excel, manejar headers específicos
         if (req.query.export || req.url.includes('/export')) {
             proxyReq.setHeader('Accept', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, application/json');
         }
@@ -436,7 +507,6 @@ app.use('/api/statistics', createProxyMiddleware({
     onProxyRes: (proxyRes, req, res) => {
         console.log(`[GATEWAY-STATISTICS] Response Status: ${proxyRes.statusCode}`);
 
-        // Para la exportación de Excel, propagar headers específicos
         if (req.url.includes('/export') || req.query.export) {
             proxyRes.headers['Content-Disposition'] = proxyRes.headers['content-disposition'] || 'attachment; filename=statistics.xlsx';
             proxyRes.headers['Content-Type'] = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -450,7 +520,6 @@ app.use('/api/statistics', createProxyMiddleware({
     }
 }));
 
-// Ruta para verificar configuración
 app.get('/config', (req, res) => {
     res.json({
         gateway: {
@@ -550,7 +619,6 @@ app.get('/config', (req, res) => {
             'GET /api/schedule/reports/time-slots/capacity-utilization': 'Reporte de utilización de capacidad'
         },
         stockEndpoints: {
-            // Product Management
             'POST   /api/products': 'Crear un nuevo producto',
             'GET    /api/products': 'Obtener todos los productos',
             'GET    /api/products/{id}': 'Obtener producto por ID',
@@ -558,29 +626,24 @@ app.get('/config', (req, res) => {
             'PATCH  /api/products/{id}': 'Actualizar producto parcialmente',
             'DELETE /api/products/{id}': 'Eliminar producto',
 
-            // Stock Management
             'POST /api/products/{productId}/stock/increase': 'Aumentar stock del producto',
             'POST /api/products/{productId}/stock/decrease': 'Disminuir stock del producto',
 
-            // Stock Alerts
             'GET /api/stock-alerts/active': 'Obtener alertas de stock activas',
             'GET /api/stock-alerts/product/{productId}': 'Obtener alertas por producto'
         },
         statisticsEndpoints: {
-            // Reports
             'GET /api/statistics/daily': 'Reporte de ventas diarias',
             'GET /api/statistics/weekly': 'Reporte de ventas semanales',
             'GET /api/statistics/monthly': 'Reporte de ventas mensuales',
             'GET /api/statistics/summary': 'Resumen estadístico general',
             'GET /api/statistics/top-products': 'Ranking de productos más vendidos',
 
-            // Export
             'GET /api/statistics/export': 'Exportar todas las estadísticas en Excel'
         }
     });
 });
 
-// Ruta para test de proxy
 app.get('/api/test-proxy', (req, res) => {
     res.json({
         message: 'Test de proxy exitoso',
@@ -589,8 +652,7 @@ app.get('/api/test-proxy', (req, res) => {
     });
 });
 
-// Ruta principal
-app.get('/', (req, res) => {
+app.get('/docs', (req, res) => {
     res.json({
         message: 'Gateway funcionando - TODOS LOS SERVICIOS AGREGADOS',
         environment: process.env.NODE_ENV || 'development',
@@ -710,7 +772,6 @@ app.get('/', (req, res) => {
     });
 });
 
-// Middleware para log de errores
 app.use((err, req, res, next) => {
     console.error('[GATEWAY] Error no manejado:', err);
     console.error('[GATEWAY] Error stack:', err.stack);
@@ -722,7 +783,6 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Manejo de rutas no encontradas
 app.use('*', (req, res) => {
     console.log(`[GATEWAY] Ruta no encontrada: ${req.originalUrl}`);
     res.status(404).json({
@@ -737,9 +797,9 @@ app.use('*', (req, res) => {
             '/api/payments/*',
             '/api/orders/*',
             '/api/schedule/*',
-            '/api/products/*', // Nueva ruta para stock
-            '/api/stock-alerts/*', // Nueva ruta para alertas de stock
-            '/api/statistics/*', // Nueva ruta para estadísticas
+            '/api/products/*',
+            '/api/stock-alerts/*',
+            '/api/statistics/*',
             '/health',
             '/config',
             '/api/test-proxy'
@@ -752,37 +812,20 @@ app.listen(GATEWAY_PORT, '0.0.0.0', () => {
     console.log('=========================================');
     console.log('GATEWAY COMPLETO - TODOS LOS SERVICIOS AGREGADOS');
     console.log('=========================================');
-    console.log(`URL: http://localhost:${GATEWAY_PORT}`);
+    console.log(`URL: http:
     console.log('Environment:', process.env.NODE_ENV || 'development');
     console.log('Microservicios configurados (9 servicios):');
-    console.log(`1. Gestión de Usuarios: ${services.usuarios}`);
-    console.log(`2. Autenticación: ${services.autenticacion}`);
-    console.log(`3. Notificaciones: ${services.notificaciones}`);
-    console.log(`4. Chat: ${services.chat}`);
-    console.log(`5. Pagos: ${services.pagos}`);
-    console.log(`6. Órdenes: ${services.ordenes}`);
-    console.log(`7. Schedule/Horarios: ${services.schedule}`);
-    console.log(`8. Stock/Inventario: ${services.stock}`);
-    console.log(`9. Statistics/Estadísticas: ${services.statistics}`);
+    console.log(`   1. Gestión de Usuarios: ${services.usuarios}`);
+    console.log(`   2. Autenticación: ${services.autenticacion}`);
+    console.log(`   3. Notificaciones: ${services.notificaciones}`);
+    console.log(`   4. Chat: ${services.chat}`);
+    console.log(`   5. Pagos: ${services.pagos}`);
+    console.log(`   6. Órdenes: ${services.ordenes}`);
+    console.log(`   7. Schedule/Horarios: ${services.schedule}`);
+    console.log(`   8. Stock/Inventario: ${services.stock}`);
+    console.log(`   9. Statistics/Estadísticas: ${services.statistics}`);
     console.log('=========================================');
-    console.log('Endpoints principales de Stock:');
-    console.log('- POST   /api/products                 Crear producto');
-    console.log('- GET    /api/products                 Listar productos');
-    console.log('- GET    /api/products/{id}            Ver producto');
-    console.log('- POST   /api/products/{id}/stock/increase  Aumentar stock');
-    console.log('- POST   /api/products/{id}/stock/decrease  Disminuir stock');
-    console.log('- GET    /api/stock-alerts/active      Alertas activas');
-    console.log('=========================================');
-    console.log('Endpoints principales de Statistics:');
-    console.log('- GET    /api/statistics/daily         Reporte diario');
-    console.log('- GET    /api/statistics/weekly        Reporte semanal');
-    console.log('- GET    /api/statistics/monthly       Reporte mensual');
-    console.log('- GET    /api/statistics/top-products  Ranking productos');
-    console.log('- GET    /api/statistics/export        Exportar Excel');
-    console.log('=========================================');
-    console.log('Para ver todos los endpoints disponibles visita:');
-    console.log(`- http://localhost:${GATEWAY_PORT}/config`);
-    console.log(`- http://localhost:${GATEWAY_PORT}/`);
+    console.log('SISTEMA COMPLETAMENTE OPERATIVO');
     console.log('=========================================');
 });
 
@@ -795,3 +838,5 @@ process.on('SIGTERM', () => {
     console.log('\n[GATEWAY] Apagando gateway...');
     process.exit(0);
 });
+
+}
